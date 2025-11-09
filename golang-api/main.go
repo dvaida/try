@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tobi/try/golang-api/internal/git"
 	"github.com/tobi/try/golang-api/internal/shell"
@@ -264,15 +265,178 @@ end
 }
 
 func cmdWorktree(args []string, triesPath string) []shell.Task {
-	panic("not implemented")
+	sub := ""
+	if len(args) > 0 {
+		sub = args[0]
+		args = args[1:]
+	}
+
+	var base, repoDir string
+	cwd, _ := os.Getwd()
+
+	if sub == "" || sub == "dir" {
+		custom := strings.Join(args, " ")
+		if custom != "" {
+			base = strings.ReplaceAll(custom, " ", "-")
+		} else {
+			base = filepath.Base(cwd)
+		}
+		repoDir = cwd
+	} else {
+		repoDir = filepath.Clean(sub)
+		custom := strings.Join(args, " ")
+		if custom != "" {
+			base = strings.ReplaceAll(custom, " ", "-")
+		} else {
+			base = filepath.Base(repoDir)
+		}
+	}
+
+	datePrefix := time.Now().Format("2006-01-02")
+	base = shell.ResolveUniqueNameWithVersioning(triesPath, datePrefix, base)
+	dirName := datePrefix + "-" + base
+	fullPath := filepath.Join(triesPath, dirName)
+
+	tasks := []shell.Task{
+		{Type: "target", Path: fullPath},
+		{Type: "mkdir"},
+	}
+
+	gitDir := filepath.Join(repoDir, ".git")
+	if _, err := os.Stat(gitDir); err == nil {
+		tasks = append(tasks, shell.Task{Type: "echo", Msg: fmt.Sprintf("Using git worktree to create this trial from %s.", repoDir)})
+		if sub == "" || sub == "dir" {
+			tasks = append(tasks, shell.Task{Type: "git-worktree"})
+		} else {
+			tasks = append(tasks, shell.Task{Type: "git-worktree", Repo: repoDir})
+		}
+	}
+
+	tasks = append(tasks, shell.Task{Type: "touch"})
+	tasks = append(tasks, shell.Task{Type: "cd"})
+	return tasks
 }
 
 func cmdCd(args []string, triesPath string, andType, andConfirm string, andExit bool, andKeys []string) []shell.Task {
-	panic("not implemented")
+	if len(args) > 0 && args[0] == "clone" {
+		return cmdClone(args[1:], triesPath)
+	}
+
+	if len(args) > 0 && (args[0] == "." || args[0] == "./") {
+		pathArg := args[0]
+		custom := ""
+		if len(args) > 1 {
+			custom = strings.Join(args[1:], " ")
+		}
+
+		cwd, _ := os.Getwd()
+		repoDir := filepath.Clean(filepath.Join(cwd, pathArg))
+
+		base := ""
+		if custom != "" {
+			base = strings.ReplaceAll(custom, " ", "-")
+		} else {
+			base = filepath.Base(repoDir)
+		}
+
+		datePrefix := time.Now().Format("2006-01-02")
+		base = shell.ResolveUniqueNameWithVersioning(triesPath, datePrefix, base)
+		dirName := datePrefix + "-" + base
+		fullPath := filepath.Join(triesPath, dirName)
+
+		tasks := []shell.Task{
+			{Type: "target", Path: fullPath},
+			{Type: "mkdir"},
+		}
+
+		gitDir := filepath.Join(repoDir, ".git")
+		if _, err := os.Stat(gitDir); err == nil {
+			tasks = append(tasks, shell.Task{Type: "echo", Msg: fmt.Sprintf("Using git worktree to create this trial from %s.", repoDir)})
+			tasks = append(tasks, shell.Task{Type: "git-worktree", Repo: repoDir})
+		}
+
+		tasks = append(tasks, shell.Task{Type: "touch"})
+		tasks = append(tasks, shell.Task{Type: "cd"})
+		return tasks
+	}
+
+	if len(args) > 0 && git.IsGitURI(args[0]) {
+		gitURI := args[0]
+		var customName string
+		if len(args) > 1 {
+			customName = strings.Join(args[1:], " ")
+		}
+
+		dirName := git.GenerateCloneDirectoryName(gitURI, customName)
+		if dirName == "" {
+			fmt.Fprintf(os.Stderr, "Error: Unable to parse git URI: %s\n", gitURI)
+			os.Exit(1)
+		}
+
+		fullPath := filepath.Join(triesPath, dirName)
+		return []shell.Task{
+			{Type: "target", Path: fullPath},
+			{Type: "mkdir"},
+			{Type: "echo", Msg: fmt.Sprintf("Using git clone to create this trial from %s.", gitURI)},
+			{Type: "git-clone", URI: gitURI},
+			{Type: "touch"},
+			{Type: "cd"},
+		}
+	}
+
+	panic("TrySelector not implemented yet - coming soon!")
 }
 
 func parseTestKeys(spec string) []string {
-	panic("not implemented")
+	if spec == "" {
+		return nil
+	}
+
+	tokens := strings.Split(spec, ",")
+	var keys []string
+
+	for _, tok := range tokens {
+		tok = strings.TrimSpace(tok)
+		tokUpper := strings.ToUpper(tok)
+
+		switch tokUpper {
+		case "UP":
+			keys = append(keys, "\x1b[A")
+		case "DOWN":
+			keys = append(keys, "\x1b[B")
+		case "LEFT":
+			keys = append(keys, "\x1b[D")
+		case "RIGHT":
+			keys = append(keys, "\x1b[C")
+		case "ENTER":
+			keys = append(keys, "\r")
+		case "ESC":
+			keys = append(keys, "\x1b")
+		case "BACKSPACE":
+			keys = append(keys, "\x7F")
+		case "CTRL-D", "CTRLD":
+			keys = append(keys, "\x04")
+		case "CTRL-P", "CTRLP":
+			keys = append(keys, "\x10")
+		case "CTRL-N", "CTRLN":
+			keys = append(keys, "\x0E")
+		case "CTRL-J", "CTRLJ":
+			keys = append(keys, "\n")
+		case "CTRL-K", "CTRLK":
+			keys = append(keys, "\x0B")
+		default:
+			if strings.HasPrefix(tokUpper, "TYPE=") {
+				text := tok[5:]
+				for _, ch := range text {
+					keys = append(keys, string(ch))
+				}
+			} else if len(tok) == 1 {
+				keys = append(keys, tok)
+			}
+		}
+	}
+
+	return keys
 }
 
 func isFish() bool {
