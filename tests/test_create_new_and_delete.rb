@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'test/unit'
 require 'open3'
 require 'tmpdir'
@@ -26,7 +27,7 @@ class TestCreateNewAndDelete < Test::Unit::TestCase
       FileUtils.mkdir_p(path)
 
       stdout, stderr, _status = run_cmd('cd', '--and-type', 'delete-me', '--and-keys', 'CTRL-D,ESC', '--and-confirm', 'YES', '--path', dir)
-      combined = stdout.to_s + stderr.to_s
+      combined = (stdout.to_s + stderr.to_s).force_encoding('UTF-8')
       clean = combined.gsub(/\e\[[0-9;?]*[ -\/]*[@-~]/, '')
 
       # Should show delete confirmation header at some point
@@ -67,7 +68,7 @@ class TestCreateNewAndDelete < Test::Unit::TestCase
       FileUtils.mkdir_p(path)
 
       stdout, stderr, _status = run_cmd('cd', '--and-type', 'keep-me', '--and-keys', 'CTRL-D,ESC', '--and-confirm', 'NO', '--path', dir)
-      combined = stdout.to_s + stderr.to_s
+      combined = (stdout.to_s + stderr.to_s).force_encoding('UTF-8')
       clean = combined.gsub(/\e\[[0-9;?]*[ -\/]*[@-~]/, '')
 
       assert_match(/Delete Directory/, clean)

@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'test/unit'
 require 'open3'
 require 'tmpdir'
@@ -16,7 +17,7 @@ class TestCdAndExit < Test::Unit::TestCase
       FileUtils.mkdir_p(File.join(dir, 'thread-pool'))
 
       stdout, stderr, _status = run_cmd('cd', '--and-type', 'pool', '--and-exit', '--path', dir)
-      combined = stdout.to_s + stderr.to_s
+      combined = (stdout.to_s + stderr.to_s).force_encoding('UTF-8')
       # Strip ANSI escape codes and cursor controls for assertions
       clean = combined.gsub(/\e\[[0-9;?]*[ -\/]*[@-~]/, '')
 
