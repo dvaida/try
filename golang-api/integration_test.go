@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -89,11 +88,9 @@ func TestWorktreeWithoutGitRepoOnlyCreatesDir(t *testing.T) {
 	repo := t.TempDir()
 	// No .git directory
 
-	cmd := exec.Command("./try", "worktree", "dir", "test", "--path", tries)
-	cmd.Dir = repo
-	stdout, _ := cmd.Output()
+	stdout, _, _ := runCmdInDir(t, repo, "worktree", "dir", "test", "--path", tries)
 
-	out := string(stdout)
+	out := stdout
 	if !strings.Contains(out, "mkdir") {
 		t.Error("should emit mkdir")
 	}
@@ -107,11 +104,9 @@ func TestWorktreeWithGitRepoAddsWorktree(t *testing.T) {
 	repo := t.TempDir()
 	os.MkdirAll(filepath.Join(repo, ".git"), 0755)
 
-	cmd := exec.Command("./try", "worktree", "dir", "test", "--path", tries)
-	cmd.Dir = repo
-	stdout, _ := cmd.Output()
+	stdout, _, _ := runCmdInDir(t, repo, "worktree", "dir", "test", "--path", tries)
 
-	out := string(stdout)
+	out := stdout
 	if !strings.Contains(out, "worktree add") {
 		t.Error("should emit worktree add when in git repo")
 	}

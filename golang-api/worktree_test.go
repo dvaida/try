@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,14 +14,12 @@ func TestWorktreeDirWithName(t *testing.T) {
 	repo := t.TempDir()
 	os.MkdirAll(filepath.Join(repo, ".git"), 0755)
 
-	cmd := exec.Command("./try", "worktree", "dir", "xyz", "--path", tries)
-	cmd.Dir = repo
-	stdout, err := cmd.Output()
+	stdout, _, err := runCmdInDir(t, repo, "worktree", "dir", "xyz", "--path", tries)
 	if err != nil {
 		t.Logf("command failed (may be expected): %v", err)
 	}
 
-	out := string(stdout)
+	out := stdout
 	if !strings.Contains(out, "mkdir -p") || !strings.Contains(out, "xyz") {
 		t.Error("should emit mkdir for date-prefixed xyz directory")
 	}
@@ -41,11 +40,9 @@ func TestWorktreeDirWithoutGitSkipsWorktreeAndEcho(t *testing.T) {
 	repo := t.TempDir()
 	// No .git directory
 
-	cmd := exec.Command("./try", "worktree", "dir", "xyz", "--path", tries)
-	cmd.Dir = repo
-	stdout, _ := cmd.Output()
+	stdout, _, _ := runCmdInDir(t, repo, "worktree", "dir", "xyz", "--path", tries)
 
-	out := string(stdout)
+	out := stdout
 	if strings.Contains(out, "worktree add --detach") {
 		t.Error("should not emit worktree add when not in git repo")
 	}
@@ -63,11 +60,9 @@ func TestTryDotEmitsWorktreeStepAndUsesCwdName(t *testing.T) {
 	os.MkdirAll(filepath.Join(proj, ".git"), 0755)
 	tries := t.TempDir()
 
-	cmd := exec.Command("./try", "cd", "./", "--path", tries)
-	cmd.Dir = proj
-	stdout, _ := cmd.Output()
+	stdout, _, _ := runCmdInDir(t, proj, "cd", "./", "--path", tries)
 
-	out := string(stdout)
+	out := stdout
 	if !strings.Contains(out, "worktree add --detach") {
 		t.Error("should include git worktree step")
 	}
@@ -85,11 +80,9 @@ func TestTryDotWithNameOverridesBasename(t *testing.T) {
 	os.MkdirAll(filepath.Join(proj, ".git"), 0755)
 	tries := t.TempDir()
 
-	cmd := exec.Command("./try", "cd", ".", "custom-name", "--path", tries)
-	cmd.Dir = proj
-	stdout, _ := cmd.Output()
+	stdout, _, _ := runCmdInDir(t, proj, "cd", ".", "custom-name", "--path", tries)
 
-	out := string(stdout)
+	out := stdout
 	if !strings.Contains(out, "worktree add --detach") || !strings.Contains(out, "custom-name") {
 		t.Error("should use custom name in worktree command")
 	}
@@ -104,11 +97,9 @@ func TestTryDotWithoutGitSkipsWorktree(t *testing.T) {
 	os.MkdirAll(proj, 0755)
 	tries := t.TempDir()
 
-	cmd := exec.Command("./try", "cd", ".", "--path", tries)
-	cmd.Dir = proj
-	stdout, _ := cmd.Output()
+	stdout, _, _ := runCmdInDir(t, proj, "cd", ".", "--path", tries)
 
-	out := string(stdout)
+	out := stdout
 	if strings.Contains(out, "worktree add --detach") {
 		t.Error("should not emit worktree when not in git repo")
 	}
@@ -119,4 +110,39 @@ func TestTryDotWithoutGitSkipsWorktree(t *testing.T) {
 	if !strings.Contains(out, "mkdir -p") || !strings.Contains(out, "plain") {
 		t.Error("should emit mkdir for date-prefixed plain directory")
 	}
+}
+
+func runCmdInDir(t *testing.T, dir string, args ...string) (string, string, error) {
+	t.Helper()
+	tryPath, _ := filepath.Abs("./try")
+	cmd := exec.Command(tryPath, args...)
+	cmd.Dir = dir
+
+	var stdoutBuf, stderrBuf []byte
+	stdoutPipe, _ := cmd.StdoutPipe()
+	stderrPipe, _ := cmd.StderrPipe()
+
+	if err := cmd.Start(); err != nil {
+		return "", "", err
+	}
+
+	stdoutDone := make(chan struct{})
+	stderrDone := make(chan struct{})
+
+	go func() {
+		stdoutBuf, _ = io.ReadAll(stdoutPipe)
+		close(stdoutDone)
+	}()
+
+	go func() {
+		stderrBuf, _ = io.ReadAll(stderrPipe)
+		close(stderrDone)
+	}()
+
+	<-stdoutDone
+	<-stderrDone
+
+	err := cmd.Wait()
+
+	return string(stdoutBuf), string(stderrBuf), err
 }

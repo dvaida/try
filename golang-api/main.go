@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tobi/try/golang-api/internal/git"
+	"github.com/tobi/try/golang-api/internal/selector"
 	"github.com/tobi/try/golang-api/internal/shell"
 )
 
@@ -384,7 +385,39 @@ func cmdCd(args []string, triesPath string, andType, andConfirm string, andExit 
 		}
 	}
 
-	panic("TrySelector not implemented yet - coming soon!")
+	searchTerm := strings.Join(args, " ")
+	options := map[string]interface{}{
+		"test_render_once": andExit,
+		"test_no_cls":      andExit || len(andKeys) > 0,
+		"test_keys":        andKeys,
+		"test_confirm":     andConfirm,
+	}
+	if andType != "" {
+		options["initial_input"] = andType
+	}
+
+	selector := selector.NewTrySelector(searchTerm, triesPath, options)
+
+	if andExit {
+		selector.Run()
+		return nil
+	}
+
+	result := selector.Run()
+	if result == nil {
+		return nil
+	}
+
+	tasks := []shell.Task{{Type: "target", Path: result["path"].(string)}}
+
+	if result["type"] == "mkdir" {
+		tasks = append(tasks, shell.Task{Type: "mkdir"})
+	}
+
+	tasks = append(tasks, shell.Task{Type: "touch"})
+	tasks = append(tasks, shell.Task{Type: "cd"})
+
+	return tasks
 }
 
 func parseTestKeys(spec string) []string {
