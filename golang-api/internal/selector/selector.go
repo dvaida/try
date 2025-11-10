@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tobi/try/golang-api/internal/ui"
+	"golang.org/x/term"
 )
 
 type TryInfo struct {
@@ -78,6 +79,28 @@ func (ts *TrySelector) Run() map[string]interface{} {
 		return nil
 	}
 
+	// Determine if we're in test mode
+	isTestMode := len(ts.TestKeys) > 0 || ts.TestNoCls
+
+	// Setup terminal raw mode for interactive input (only in non-test mode)
+	var oldState *term.State
+	if !isTestMode {
+		var err error
+		oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error setting up terminal: %v\n", err)
+			return nil
+		}
+		defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+		// Hide cursor
+		fmt.Fprint(os.Stderr, "\x1b[?25l")
+		defer fmt.Fprint(os.Stderr, "\x1b[?25h")
+
+		// Clear screen initially
+		ui.Cls()
+	}
+
 	for {
 		tries := ts.GetTries()
 		totalItems := len(tries) + 1
@@ -95,6 +118,10 @@ func (ts *TrySelector) Run() map[string]interface{} {
 
 		switch key {
 		case "\r":
+			// Clear screen before exit (only in non-test mode)
+			if !isTestMode {
+				ui.Cls()
+			}
 			if ts.CursorPos < len(tries) {
 				ts.Selected = map[string]interface{}{
 					"type": "cd",
@@ -123,6 +150,10 @@ func (ts *TrySelector) Run() map[string]interface{} {
 				ts.AllTries = nil
 			}
 		case "\x03", "\x1b":
+			// Clear screen before exit (only in non-test mode)
+			if !isTestMode {
+				ui.Cls()
+			}
 			ts.Selected = nil
 			return nil
 		default:
@@ -428,16 +459,55 @@ func (ts *TrySelector) render(tries []TryInfo) {
 		ui.Puts("{dim_text}↑↓/Ctrl-P,N,J,K: Navigate  Enter: Select  Ctrl-D: Delete  ESC: Cancel{reset}")
 	}
 
-	ui.Flush(false)
+	// Use TTY mode unless we're in test mode
+	isTTY := !ts.TestNoCls && len(ts.TestKeys) == 0
+	ui.Flush(isTTY)
 }
 
 func (ts *TrySelector) readKey() string {
+	// For testing mode, use pre-defined keys
 	if len(ts.TestKeys) > 0 {
 		key := ts.TestKeys[0]
 		ts.TestKeys = ts.TestKeys[1:]
 		return key
 	}
-	return "\x1b"
+
+	// Read from stdin in raw mode
+	buf := make([]byte, 3)
+	n, err := os.Stdin.Read(buf)
+	if err != nil || n == 0 {
+		return "\x1b" // ESC on error
+	}
+
+	// Handle escape sequences
+	if n == 1 {
+		return string(buf[0])
+	}
+
+	// Multi-byte escape sequence
+	if buf[0] == '\x1b' {
+		if n == 2 && buf[1] == '\x1b' {
+			// Double ESC, treat as single ESC
+			return "\x1b"
+		}
+		if n >= 3 && buf[1] == '[' {
+			// ANSI escape sequence
+			switch buf[2] {
+			case 'A': // Up arrow
+				return "\x1b[A"
+			case 'B': // Down arrow
+				return "\x1b[B"
+			case 'C': // Right arrow
+				return "\x1b[C"
+			case 'D': // Left arrow
+				return "\x1b[D"
+			}
+		}
+		// Unknown escape sequence, return ESC
+		return "\x1b"
+	}
+
+	return string(buf[:n])
 }
 
 func (ts *TrySelector) handleCreateNew() map[string]interface{} {

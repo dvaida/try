@@ -408,6 +408,11 @@ func cmdCd(args []string, triesPath string, andType, andConfirm string, andExit 
 		return nil
 	}
 
+	// Check if user cancelled (e.g., pressed Enter on "Create new" without typing)
+	if result["type"] == "cancel" {
+		return nil
+	}
+
 	tasks := []shell.Task{{Type: "target", Path: result["path"].(string)}}
 
 	if result["type"] == "mkdir" {
